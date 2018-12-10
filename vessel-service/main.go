@@ -1,49 +1,31 @@
 package main
 
 import (
+	"os"
 	"log"
-	"context"
-	"errors"
 	"github.com/micro/go-micro"
 	pb "shippy/vessel-service/proto/vessel"
 )
 
-type Reposistory interface {
-	FindAvailable(*pb.Specification) (*pb.Vessel, error)
-}
-
-type VesselRepository struct {
-	vessels []*pb.Vessel
-}
-
-func (repo *VesselRepository) FindAvailable(spec *pb.Specification) (*pb.Vessel, error) {
-	for _, v := range repo.vessels {
-		if v.Capacity >= spec.Capacity && v.MaxWeight >= spec.MaxWeight {
-			return v, nil
-		}
-	}
-	return nil, errors.New("No vessel can't be use")
-}
-
-type service struct {
-	repo Reposistory
-}
-
-func (s *service) FindAvailable(ctx context.Context, sepc *pb.Specification, resp *pb.Response) error {
-	v, err := s.repo.FindAvailable(sepc)
-	if err != nil {
-		return err
-	}
-	resp.Vessel = v
-	return nil
-}
+const (
+	DEFAULT_HOST = "localhost:27017"
+)
 
 func main() {
-	vessels := []*pb.Vessel{
-		{ Id: "vessel001", Name: "Boaty McBoatface", MaxWeight: 2000000, Capacity: 500 },
+
+	host := os.Getenv("DB_HOST")
+	if host == "" {
+		host = DEFAULT_HOST
 	}
 
-	repo := &VesselRepository{vessels}
+	session, err := CreateSession(host)
+	if err != nil {
+		log.Fatalf("create session error: %v\n", err)
+	}
+	defer session.Close()
+
+	repo := &VesselRepository{ session.Copy() }
+	CreateDummyData(repo)
 
 	server := micro.NewService(
 		micro.Name("go.micro.srv.vessel"),
@@ -51,9 +33,19 @@ func main() {
 	)
 	server.Init()
 
-	pb.RegisterVesselServiceHandler(server.Server(), &service{ repo })
+	pb.RegisterVesselServiceHandler(server.Server(), &handler{ session })
 
 	if err := server.Run(); err != nil {
 		log.Fatalf("failed to serve: %v", err)
+	}
+}
+
+func CreateDummyData(repo Repository)  {
+	defer repo.Close()
+	vessels := []*pb.Vessel{
+		{Id: "vessel001", Name: "Boaty McBoatface", MaxWeight: 200000, Capacity: 500},
+	}
+	for _, v := range vessels {
+		repo.Create(v)
 	}
 }
