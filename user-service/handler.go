@@ -6,12 +6,17 @@ import (
 	"fmt"
 	pb "shippy/user-service/proto/user"
 
+	micro "github.com/micro/go-micro"
+	_ "github.com/micro/go-plugins/broker/nats"
 	"golang.org/x/crypto/bcrypt"
 )
+
+const topic = "user.created"
 
 type handler struct {
 	repo         Repository
 	tokenService Authable
+	Publisher    micro.Publisher
 }
 
 func (h *handler) Create(ctx context.Context, req *pb.User, resp *pb.Response) error {
@@ -24,6 +29,11 @@ func (h *handler) Create(ctx context.Context, req *pb.User, resp *pb.Response) e
 		return nil
 	}
 	resp.User = req
+
+	if err := h.Publisher.Publish(ctx, req); err != nil {
+		return err
+	}
+
 	return nil
 }
 
